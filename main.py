@@ -1,37 +1,38 @@
 import os
-import threading
-from flask import Flask
+from flask import Flask, request
+import requests
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 app = Flask(__name__)
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "✅ mamdouh-bot is Online 24/7 - Powered by Render"
+    return "Bot is running! Mamdouh agent is live"
 
-@app.route('/health')
-def health():
-    return "OK", 200
-
-# ========== هنا تحط كود البوت بتاعك ==========
-# مثال لبوت تليجرام، لو عندك بوت تاني استبدل اللي تحت
-def run_bot_logic():
-    print("🚀 Bot logic is running...")
-    # مثال: لو عندك بوت تليجرام حط الكود هنا
-    # import telebot
-    # bot = telebot.TeleBot(os.environ.get("BOT_TOKEN"))
-    # bot.infinity_polling()
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.get_json()
+    print(data) # عشان تشوفه في لوج Render
     
-    # لو معندكش بوت دلوقتي، خليها شغالة كده عشان السيرفر يفضل حي
-    while True:
-        pass
+    if data and "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        text = data["message"].get("text", "")
+        
+        if text == "/start":
+            reply_text = "وعليكم السلام ورحمة الله وبركاته! 👋\nأنا وكيل ممدوح الذكي للتسويق العقاري والتجاري، جاهز أخدمك. ابعتلي عايز ايه؟"
+        elif "السلام" in text:
+            reply_text = "وعليكم السلام يا غالي! تأمرني بإيه؟"
+        else:
+            reply_text = f"تمام، استلمت رسالتك: {text}\nأنا لسه بتعلم وهساعدك في التسويق قريب جداً."
 
-# ===========================================
+        requests.post(f"{TELEGRAM_API}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": reply_text
+        })
+    
+    return "ok", 200
 
 if __name__ == "__main__":
-    # شغل البوت في الخلفية
-    bot_thread = threading.Thread(target=run_bot_logic, daemon=True)
-    bot_thread.start()
-    
-    # ده السيرفر اللي Render محتاجه عشان يعرف انك شغال
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
