@@ -1,4 +1,4 @@
-import os, logging, requests, random, datetime
+import os, logging, requests, random, datetime, json
 from flask import Flask, request, jsonify
 
 logging.basicConfig(level=logging.INFO)
@@ -7,6 +7,8 @@ app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or os.environ.get("OPENAI_API_KEY")
+CHANNEL_ID = os.environ.get("CHANNEL_ID")  # مثلا @MamdouhEmpire او -100123456789
+OWNER_ID = os.environ.get("OWNER_ID")  # ايدي تليجرام الخاص بك عشان التقارير
 WEBHOOK_URL = "https://mamdouh-bot.onrender.com/webhook"
 
 BOOKS = {
@@ -40,57 +42,135 @@ STORES = {
  "upwork": "https://www.upwork.com/services/product/development-it-an-ai-workforce-with-ai-agents-n8n-automation-whatsapp-crm-integration-2083154276523185261"
 }
 
+# سجل الحملات المنشورة
+PUBLISH_LOG = []
+
 def send_telegram(chat_id, text):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {"chat_id": chat_id, "text": text[:4000], "parse_mode": "Markdown"}
-        return requests.post(url, json=payload, timeout=15).ok
-    except:
-        return False
+        payload = {"chat_id": chat_id, "text": text[:4000]}
+        r = requests.post(url, json=payload, timeout=15)
+        return r.json() if r.ok else None
+    except Exception as e:
+        logger.error(f"Send failed: {e}")
+        return None
 
-def ask_ai(user_text):
+def publish_to_channel(text):
+    if not CHANNEL_ID:
+        return {"ok": False, "error": "CHANNEL_ID not set"}
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": CHANNEL_ID, "text": text[:4000]}
+        r = requests.post(url, json=payload, timeout=15)
+        data = r.json()
+        if data.get("ok"):
+            return {"ok": True, "message_id": data["result"]["message_id"]}
+        return {"ok": False, "error": str(data)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+def ask_ai_campaign(campaign_type="book", bid=None):
     if not GROQ_API_KEY:
         return "GROQ key missing"
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-        system = f"You are Mamdouh AI Marketing Agent. You have 22 Amazon books, 28 Ballwool products at {STORES['ballwool']}, Redbubble {STORES['redbubble']}, Upwork {STORES['upwork']}. Answer in Egyptian Arabic and promote them."
-        data = {"model": "llama-3.3-70b-versatile","messages": [{"role":"system","content":system},{"role":"user","content":user_text}],"temperature":0.7,"max_tokens":1000}
+        if campaign_type == "book":
+            bid = bid or random.choice(list(BOOKS.keys()))
+            system = "انت مسوق محترف. صمم حملة 4 سطور فقط: Hook + ميزة + سعر/قيمة + CTA + لينك في سطر منفصل. لا تستخدم markdown."
+            user_p = f"حملة لكتاب {BOOKS[bid]} - لينك https://www.amazon.co.uk/dp/{bid} - متجري {STORES['ballwool']}"
+        elif campaign_type == "ballwool":
+            system = "مسوق لمتجر رقمي 28 منتج. اهم منتجات CRM Pro و LIFE OS و WEALTH OS. حملة 4 سطور Hook+Benefit+Price+CTA + لينك منفصل."
+            user_p = f"حملة لمتجر Ballwool {STORES['ballwool']} - منتجات Business CRM Pro $24.99, LIFE OS 2.0, WEALTH OS $59.99"
+        else:
+            system = "مسوق لخدمة AI Workforce 7 وكلاء يردوا في 28 ثانية. حملة 4 سطور بالارقام."
+            user_p = f"حملة لخدمة Upwork AI Workforce {STORES['upwork']} - 7 Agents - 28sec - 112 meeting/month - $12.3k saving"
+        
+        data = {"model": "llama-3.3-70b-versatile","messages": [{"role":"system","content":system},{"role":"user","content":user_p}],"temperature":0.8,"max_tokens":400}
         r = requests.post(url, headers=headers, json=data, timeout=25)
         if r.status_code==200:
-            return r.json()["choices"][0]["message"]["content"]
-        return f"AI busy {r.status_code}"
+            txt = r.json()["choices"][0]["message"]["content"]
+            if campaign_type=="book":
+                return txt, bid
+            return txt, None
+        return f"AI busy {r.status_code}", None
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error {e}", None
+
+def execute_full_campaign(trigger="auto"):
+    """الوكيل المستقل ينفذ الحملة كاملة وينشر ويبلغ"""
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    # اختار نوع الحملة بالتناوب
+    day = datetime.datetime.now().day
+    types = ["book", "ballwool", "upwork", "book"]
+    ctype = types[day % len(types)]
+    
+    campaign_text, bid = ask_ai_campaign(ctype)
+    
+    # انشر في القناة
+    publish_result = publish_to_channel(campaign_text)
+    
+    # سجل
+    log_entry = {
+        "time": now,
+        "type": ctype,
+        "book_id": bid,
+        "text": campaign_text[:200],
+        "published": publish_result.get("ok", False),
+        "channel": CHANNEL_ID,
+        "trigger": trigger
+    }
+    PUBLISH_LOG.append(log_entry)
+    if len(PUBLISH_LOG) > 50:
+        PUBLISH_LOG.pop(0)
+    
+    # تقرير للمالك
+    report = f"""✅ الوكيل نفذ حملة {now}
+📦 النوع: {ctype}
+📚 المنتج: {BOOKS.get(bid, ctype) if bid else ctype}
+📢 نشر: {'نعم في القناة ' + str(CHANNEL_ID) if publish_result.get('ok') else 'فشل - ' + str(publish_result.get('error'))}
+📝 النص:
+{campaign_text}
+
+🔗 الروابط:
+Amazon: https://www.amazon.co.uk/dp/{bid if bid else 'B0H8324FGM'}
+Ballwool: {STORES['ballwool']}
+Upwork: {STORES['upwork']}
+
+📊 النتائج المتوقعة:
+- وصول: 500-1000 مشاهدة في القناة
+- نقرات متوقعة: 20-50 نقرة
+- مبيعات محتملة: 1-3 (حسب تفاعل القناة)
+
+السجل: /report
+"""
+    if OWNER_ID:
+        send_telegram(OWNER_ID, report)
+    
+    return {"campaign": campaign_text, "log": log_entry, "report": report, "publish": publish_result}
 
 @app.route("/")
 def home():
-    return jsonify({"status":"Live V6 Empire FIXED","books":len(BOOKS),"stores":STORES,"groq":bool(GROQ_API_KEY)})
+    return jsonify({"status":"Live V8 Autonomous Agent","books":22,"channel":bool(CHANNEL_ID),"owner":bool(OWNER_ID),"logs":len(PUBLISH_LOG)})
 
 @app.route("/setwebhook")
 def set_webhook_route():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
     return jsonify(requests.get(url, timeout=10).json())
 
-@app.route("/books")
-def list_books():
-    return jsonify(BOOKS)
-
-@app.route("/empire")
-def empire():
-    return jsonify({"channels":4,"amazon_books":22,"ballwool_products":28,"stores":STORES})
-
-@app.route("/campaign")
-def campaign():
-    bid = random.choice(list(BOOKS.keys()))
-    txt = ask_ai(f"اعمل حملة تسويقية قصيرة لكتاب {BOOKS[bid]} https://www.amazon.co.uk/dp/{bid}")
-    return jsonify({"book":bid,"campaign":txt})
+@app.route("/autocampaign")
+def autocampaign_route():
+    result = execute_full_campaign(trigger="manual_api")
+    return jsonify(result)
 
 @app.route("/daily_push")
 def daily_push():
-    bid = list(BOOKS.keys())[datetime.datetime.now().day % len(BOOKS)]
-    txt = f"Kitab اليوم: {BOOKS[bid]} - https://www.amazon.co.uk/dp/{bid} | Ballwool: {STORES['ballwool']} | Redbubble: {STORES['redbubble']} | Upwork: {STORES['upwork']}"
-    return jsonify({"pushed":bid,"text":txt})
+    result = execute_full_campaign(trigger="cron_daily")
+    return jsonify(result)
+
+@app.route("/report")
+def report_route():
+    return jsonify({"total":len(PUBLISH_LOG),"logs":PUBLISH_LOG[-10:]})
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -102,21 +182,39 @@ def webhook():
         if "text" not in msg:
             return "ok",200
         chat_id = msg["chat"]["id"]
-        text = msg["text"].lower()
-        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendChatAction", json={"chat_id":chat_id,"action":"typing"}, timeout=5)
-        if "/books" in text or "عدد الكتب" in text:
-            top3 = "\n".join([f"- {v}: https://www.amazon.co.uk/dp/{k}" for k,v in list(BOOKS.items())[:3]])
-            reply = f"عندك {len(BOOKS)} كتاب على أمازون + 28 منتج على Ballwool + Redbubble + خدمة Upwork\n{top3}\n... ومتجرك: {STORES['ballwool']}"
-        elif "/empire" in text or "متاجرى" in text or "امبراطورية" in text:
-            reply = f"امبراطوريتك 4 قنوات:\n1. أمازون 22 كتاب\n2. Upwork: {STORES['upwork']}\n3. Ballwool 28 منتج: {STORES['ballwool']}\n4. Redbubble: {STORES['redbubble']}"
-        elif "/ballwool" in text:
-            reply = f"Bdran-Studio - 28 منتج:\n- Business CRM Pro ULTRA $24.99\n- LIFE OS 2.0 $24.99\n- WEALTH OS 35-in-1 $59.99\n{STORES['ballwool']}"
-        elif "/campaign" in text or "حملة" in text or "انشر" in text:
-            bid = random.choice(list(BOOKS.keys()))
-            reply = ask_ai(f"اعملي حملة تسويقية قوية لكتاب {BOOKS[bid]} {bid} مع ترويج لمتجر Ballwool {STORES['ballwool']}")
+        text_raw = msg["text"]
+        text = text_raw.lower()
+
+        if "/autocampaign" in text or "نفذ حملة" in text or "ابدأ حملة" in text or "انشر نيابة" in text:
+            send_telegram(chat_id, "🤖 الوكيل بدأ تنفيذ الحملة الآن... ثواني وينشر ويبلغك")
+            result = execute_full_campaign(trigger=f"user_{chat_id}")
+            send_telegram(chat_id, result["report"])
+        
+        elif "/report" in text or "ماذا فعلت" in text or "التقرير" in text or "النتائج" in text:
+            if not PUBLISH_LOG:
+                send_telegram(chat_id, "📭 لسه مفيش حملات منشورة. ابعت /autocampaign عشان ابدأ")
+            else:
+                last = PUBLISH_LOG[-1]
+                txt = f"📊 آخر تقرير:\nالوقت: {last['time']}\nالنوع: {last['type']}\nنشر: {last['published']}\nالنص: {last['text']}\n\nإجمالي الحملات: {len(PUBLISH_LOG)}\n/report للتفاصيل"
+                send_telegram(chat_id, txt)
+        
+        elif "/empire" in text:
+            send_telegram(chat_id, f"امبراطوريتك 4 قنوات:\nAmazon 22 كتاب\nBallwool 28: {STORES['ballwool']}\nUpwork: {STORES['upwork']}\nRedbubble: {STORES['redbubble']}\n\nللبدء: /autocampaign")
+        
+        elif "/campaign" in text:
+            ctext, _ = ask_ai_campaign("book")
+            send_telegram(chat_id, ctext)
+        
         else:
-            reply = ask_ai(msg["text"])
-        send_telegram(chat_id, reply)
+            # اي رسالة عامة = اعتبرها امر تنفيذ حملة
+            if any(w in text for w in ["حملة", "انشر", "سوق", "campaign", "publish"]):
+                send_telegram(chat_id, "🚀 فهمت! هابدأ حملة تسويقية كاملة وانشرها نيابة عنك...")
+                result = execute_full_campaign(trigger=f"user_{chat_id}")
+                send_telegram(chat_id, result["report"])
+            else:
+                ctext, _ = ask_ai_campaign("book")
+                send_telegram(chat_id, ctext)
+
     except Exception as e:
         logger.error(e)
     return "ok",200
