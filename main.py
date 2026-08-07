@@ -45,22 +45,27 @@ def send_telegram(chat_id, text):
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         payload = {"chat_id": chat_id, "text": text[:4000], "parse_mode": "Markdown"}
         return requests.post(url, json=payload, timeout=15).ok
-    except: return False
+    except:
+        return False
 
 def ask_ai(user_text):
-    if not GROQ_API_KEY: return "GROQ key missing"
+    if not GROQ_API_KEY:
+        return "GROQ key missing"
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         system = f"You are Mamdouh AI Marketing Agent. You have 22 Amazon books, 28 Ballwool products at {STORES['ballwool']}, Redbubble {STORES['redbubble']}, Upwork {STORES['upwork']}. Answer in Egyptian Arabic and promote them."
         data = {"model": "llama-3.3-70b-versatile","messages": [{"role":"system","content":system},{"role":"user","content":user_text}],"temperature":0.7,"max_tokens":1000}
         r = requests.post(url, headers=headers, json=data, timeout=25)
-        if r.status_code==200: return r.json()["choices"][0]["message"]["content"]
+        if r.status_code==200:
+            return r.json()["choices"][0]["message"]["content"]
         return f"AI busy {r.status_code}"
-    except Exception as e: return f"Error: {e}"
+    except Exception as e:
+        return f"Error: {e}"
 
 @app.route("/")
-def home(): return jsonify({"status":"Live V6 Empire","books":len(BOOKS),"stores":STORES,"groq":bool(GROQ_API_KEY)})
+def home():
+    return jsonify({"status":"Live V6 Empire FIXED","books":len(BOOKS),"stores":STORES,"groq":bool(GROQ_API_KEY)})
 
 @app.route("/setwebhook")
 def set_webhook_route():
@@ -68,10 +73,12 @@ def set_webhook_route():
     return jsonify(requests.get(url, timeout=10).json())
 
 @app.route("/books")
-def list_books(): return jsonify(BOOKS)
+def list_books():
+    return jsonify(BOOKS)
 
 @app.route("/empire")
-def empire(): return jsonify({"channels":4,"amazon_books":22,"ballwool_products":28,"stores":STORES})
+def empire():
+    return jsonify({"channels":4,"amazon_books":22,"ballwool_products":28,"stores":STORES})
 
 @app.route("/campaign")
 def campaign():
@@ -82,38 +89,36 @@ def campaign():
 @app.route("/daily_push")
 def daily_push():
     bid = list(BOOKS.keys())[datetime.datetime.now().day % len(BOOKS)]
-    txt = f"📚 كتاب اليوم: {BOOKS[bid]}
-👉 https://www.amazon.co.uk/dp/{bid}
-
-🛍️ متجري Ballwool 28 منتج: {STORES['ballwool']}
-🎨 Redbubble: {STORES['redbubble']}
-💼 Upwork AI Workforce: {STORES['upwork']}"
+    txt = f"Kitab اليوم: {BOOKS[bid]} - https://www.amazon.co.uk/dp/{bid} | Ballwool: {STORES['ballwool']} | Redbubble: {STORES['redbubble']} | Upwork: {STORES['upwork']}"
     return jsonify({"pushed":bid,"text":txt})
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         data = request.get_json(force=True)
-        if not data or "message" not in data: return "ok",200
+        if not data or "message" not in data:
+            return "ok",200
         msg = data["message"]
-        if "text" not in msg: return "ok",200
+        if "text" not in msg:
+            return "ok",200
         chat_id = msg["chat"]["id"]
         text = msg["text"].lower()
         requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendChatAction", json={"chat_id":chat_id,"action":"typing"}, timeout=5)
         if "/books" in text or "عدد الكتب" in text:
-            reply = f"عندك {len(BOOKS)} كتاب على أمازون + 28 منتج على Ballwool + Redbubble + خدمة Upwork
-" + "\n".join([f"- {v}: https://www.amazon.co.uk/dp/{k}" for k,v in list(BOOKS.items())[:3]]) + f"\n... ومتجرك: {STORES['ballwool']}"
+            top3 = "\n".join([f"- {v}: https://www.amazon.co.uk/dp/{k}" for k,v in list(BOOKS.items())[:3]])
+            reply = f"عندك {len(BOOKS)} كتاب على أمازون + 28 منتج على Ballwool + Redbubble + خدمة Upwork\n{top3}\n... ومتجرك: {STORES['ballwool']}"
         elif "/empire" in text or "متاجرى" in text or "امبراطورية" in text:
-            reply = f"🏛️ امبراطوريتك 4 قنوات:\n📚 أمازون 22 كتاب\n💼 Upwork: {STORES['upwork']}\n🛍️ Ballwool 28 منتج: {STORES['ballwool']}\n🎨 Redbubble: {STORES['redbubble']}"
+            reply = f"امبراطوريتك 4 قنوات:\n1. أمازون 22 كتاب\n2. Upwork: {STORES['upwork']}\n3. Ballwool 28 منتج: {STORES['ballwool']}\n4. Redbubble: {STORES['redbubble']}"
         elif "/ballwool" in text:
-            reply = f"🛍️ Bdran-Studio - 28 منتج:\n- Business CRM Pro ULTRA $24.99\n- LIFE OS 2.0 $24.99\n- WEALTH OS 35-in-1 $59.99\n👉 {STORES['ballwool']}"
+            reply = f"Bdran-Studio - 28 منتج:\n- Business CRM Pro ULTRA $24.99\n- LIFE OS 2.0 $24.99\n- WEALTH OS 35-in-1 $59.99\n{STORES['ballwool']}"
         elif "/campaign" in text or "حملة" in text or "انشر" in text:
             bid = random.choice(list(BOOKS.keys()))
             reply = ask_ai(f"اعملي حملة تسويقية قوية لكتاب {BOOKS[bid]} {bid} مع ترويج لمتجر Ballwool {STORES['ballwool']}")
         else:
             reply = ask_ai(msg["text"])
         send_telegram(chat_id, reply)
-    except Exception as e: logger.error(e)
+    except Exception as e:
+        logger.error(e)
     return "ok",200
 
 if __name__ == "__main__":
