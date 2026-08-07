@@ -82,4 +82,39 @@ def campaign():
 @app.route("/daily_push")
 def daily_push():
     bid = list(BOOKS.keys())[datetime.datetime.now().day % len(BOOKS)]
-    txt = f"📚 كتاب اليوم: {BOOKS[bid]}\n👉 https://www.amazon.co.uk/dp/{bid}\n\n🛍️ متجري Ball
+    txt = f"📚 كتاب اليوم: {BOOKS[bid]}
+👉 https://www.amazon.co.uk/dp/{bid}
+
+🛍️ متجري Ballwool 28 منتج: {STORES['ballwool']}
+🎨 Redbubble: {STORES['redbubble']}
+💼 Upwork AI Workforce: {STORES['upwork']}"
+    return jsonify({"pushed":bid,"text":txt})
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        data = request.get_json(force=True)
+        if not data or "message" not in data: return "ok",200
+        msg = data["message"]
+        if "text" not in msg: return "ok",200
+        chat_id = msg["chat"]["id"]
+        text = msg["text"].lower()
+        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendChatAction", json={"chat_id":chat_id,"action":"typing"}, timeout=5)
+        if "/books" in text or "عدد الكتب" in text:
+            reply = f"عندك {len(BOOKS)} كتاب على أمازون + 28 منتج على Ballwool + Redbubble + خدمة Upwork
+" + "\n".join([f"- {v}: https://www.amazon.co.uk/dp/{k}" for k,v in list(BOOKS.items())[:3]]) + f"\n... ومتجرك: {STORES['ballwool']}"
+        elif "/empire" in text or "متاجرى" in text or "امبراطورية" in text:
+            reply = f"🏛️ امبراطوريتك 4 قنوات:\n📚 أمازون 22 كتاب\n💼 Upwork: {STORES['upwork']}\n🛍️ Ballwool 28 منتج: {STORES['ballwool']}\n🎨 Redbubble: {STORES['redbubble']}"
+        elif "/ballwool" in text:
+            reply = f"🛍️ Bdran-Studio - 28 منتج:\n- Business CRM Pro ULTRA $24.99\n- LIFE OS 2.0 $24.99\n- WEALTH OS 35-in-1 $59.99\n👉 {STORES['ballwool']}"
+        elif "/campaign" in text or "حملة" in text or "انشر" in text:
+            bid = random.choice(list(BOOKS.keys()))
+            reply = ask_ai(f"اعملي حملة تسويقية قوية لكتاب {BOOKS[bid]} {bid} مع ترويج لمتجر Ballwool {STORES['ballwool']}")
+        else:
+            reply = ask_ai(msg["text"])
+        send_telegram(chat_id, reply)
+    except Exception as e: logger.error(e)
+    return "ok",200
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",10000)))
