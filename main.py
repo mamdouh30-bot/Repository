@@ -13,7 +13,7 @@ OWNER_ID = os.environ.get("OWNER_ID")
 GROUP_IDS_RAW = os.environ.get("GROUP_IDS", "")
 AUTO_POST = os.environ.get("AUTO_POST", "false").lower() == "true"
 WEBHOOK_URL = "https://mamdouh-bot.onrender.com/webhook"
-MAKE_WEBHOOK_URL = os.environ.get("MAKE_WEBHOOK_URL", "") # حط هنا رابط Make.com
+MAKE_WEBHOOK_URL = os.environ.get("MAKE_WEBHOOK_URL", "")
 
 BOOKS = {
  "B0H9HVV2M5": "AI Digital Transformation",
@@ -78,15 +78,12 @@ def groq_chat(system_prompt, user_prompt, temp=0.8, max_tokens=600):
     except Exception as e:
         return f"Error {e}"
 
-# --- 1. ANALYST BRAIN: يختار افضل حملة بناء على الوقت والاداء ---
 def choose_best_campaign():
-    # تحليل بسيط: الصباح كتب، الظهر Ballwool، المساء Upwork
     hour = datetime.datetime.now().hour
     if 5 <= hour < 12: return "book"
     if 12 <= hour < 18: return "ballwool"
-    return "upwork" # المساء خدمات غالية
+    return "upwork"
 
-# --- 2. DESIGNER + COPYWRITER ---
 def create_ultimate_poster(title, book_id=None, ctype="book", style="square"):
     try:
         from PIL import Image, ImageDraw, ImageFont
@@ -166,17 +163,14 @@ Max 100 words. English only. Persuasive, urgent, emojis."""
         txt = groq_chat(system, user_p, 0.85, 600)
         return txt, None
 
-# --- 3. PUBLISHER ---
 def publish_everywhere(text, image_path):
     results = {}
-    # Channel
     if image_path:
         res = send_photo(CHANNEL_ID, image_path, text)
         if not res.get("ok"): res = send_telegram(CHANNEL_ID, text)
     else:
         res = send_telegram(CHANNEL_ID, text)
     results[CHANNEL_ID] = res.get("ok", False)
-    # Groups
     for gid in GROUP_IDS:
         try:
             if image_path:
@@ -185,11 +179,10 @@ def publish_everywhere(text, image_path):
             else:
                 r = send_telegram(gid, text)
             results[gid] = r.get("ok", False)
-            time.sleep(5) # مهم جدا ضد السبام
+            time.sleep(5)
         except Exception as e:
             results[gid] = False
             logger.error(f"Group {gid} fail: {e}")
-    # Make.com webhook for other platforms
     if MAKE_WEBHOOK_URL and image_path:
         try:
             requests.post(MAKE_WEBHOOK_URL, json={"text": text, "image_path": image_path, "channel": CHANNEL_ID}, timeout=10)
@@ -198,7 +191,6 @@ def publish_everywhere(text, image_path):
             results["make.com"] = False
     return results
 
-# --- 4. SALES AGENT: يرد على العملاء ---
 def handle_customer_ai(user_text, user_name="Friend"):
     system = f"""You are professional Sales & Support Agent for Mamdouh Bdran.
 You have 3 product lines:
@@ -216,19 +208,18 @@ Your job:
 User name: {user_name}
 """
     reply = groq_chat(system, user_text, 0.7, 350)
-    # Detect hot lead
     hot_keywords = ["buy","price","how much","link","interested","purchase","want","شراء","مهتم","سعر","كام","اشتري","تفاصيل"]
     is_hot = any(k in user_text.lower() for k in hot_keywords)
     return reply, is_hot
 
 def execute_ultimate_campaign(trigger="auto"):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    ctype = choose_best_campaign() # Analyst Brain
-    campaign_text, bid = ask_ai_campaign(ctype) # Copywriter
+    ctype = choose_best_campaign()
+    campaign_text, bid = ask_ai_campaign(ctype)
     title = BOOKS.get(bid, "Business CRM Pro" if ctype=="ballwool" else "AI Workforce")
-    img_square = create_ultimate_poster(title, bid, ctype, "square") # Designer
+    img_square = create_ultimate_poster(title, bid, ctype, "square")
     img_story = create_ultimate_poster(title, bid, ctype, "story")
-    publish_results = publish_everywhere(campaign_text, img_square) # Publisher
+    publish_results = publish_everywhere(campaign_text, img_square)
     log_entry = {"time": now, "type": ctype, "book_id": bid, "title": title, "published": publish_results, "trigger": trigger}
     PUBLISH_LOG.append(log_entry)
     if len(PUBLISH_LOG)>100: PUBLISH_LOG.pop(0)
@@ -255,7 +246,7 @@ if AUTO_POST and not os.environ.get("SCHEDULER_STARTED"):
 
 @app.route("/")
 def home():
-    return jsonify({"status": "V12 AGENCY - Full Marketing Agency","channel": CHANNEL_ID,"groups": GROUP_IDS,"auto_post": AUTO_POST,"campaigns": len(PUBLISH_LOG),"leads": len(LEADS_LOG)})
+    return jsonify({"status": "V13 AGENCY - Group Reply Enabled","channel": CHANNEL_ID,"groups": GROUP_IDS,"auto_post": AUTO_POST,"campaigns": len(PUBLISH_LOG),"leads": len(LEADS_LOG)})
 
 @app.route("/setwebhook")
 def setwebhook():
@@ -297,6 +288,9 @@ def webhook():
         low = text.lower()
         chat_type = msg["chat"].get("type","private")
         first_name = msg.get("from",{}).get("first_name","Friend")
+        is_bot_user = msg.get("from",{}).get("is_bot", False)
+        if is_bot_user:
+            return "ok",200
 
         if low.startswith("/id"):
             send_telegram(chat_id, f"🆔 <code>{chat_id}</code>\nType: {chat_type}\nTitle: {msg['chat'].get('title','Private')}", parse_mode="HTML")
@@ -337,19 +331,49 @@ def webhook():
                 send_telegram(chat_id, txt)
             return "ok",200
 
-        # --- SALES AGENT: رد تلقائي على العملاء في الخاص ---
+        # --- PRIVATE SALES ---
         if chat_type == "private":
-            # تجاهل الاوامر
             if text.startswith("/"): return "ok",200
             reply, is_hot = handle_customer_ai(text, first_name)
             send_telegram(chat_id, reply)
-            # حفظ الليد
             lead = {"chat_id": chat_id, "name": first_name, "text": text, "reply": reply, "hot": is_hot, "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
             LEADS_LOG.append(lead)
             if len(LEADS_LOG)>200: LEADS_LOG.pop(0)
             if is_hot and OWNER_ID:
                 send_telegram(OWNER_ID, f"🔥 HOT LEAD!\n👤 {first_name} (ID:{chat_id})\n💬 Said: {text}\n🤖 Replied: {reply}\n\nGo close the deal!")
             return "ok",200
+
+        # --- NEW: GROUP SALES - يرد في الجروبات ---
+        if chat_type in ["group", "supergroup"]:
+            if text.startswith("/"): return "ok",200
+            # تحقق هل الرسالة رد على البوت او منشن او سؤال
+            is_reply_to_bot = False
+            if msg.get("reply_to_message"):
+                replied_from = msg["reply_to_message"].get("from", {})
+                if replied_from.get("is_bot"):
+                    is_reply_to_bot = True
+            
+            bot_keywords = ["bot", "mamdouh", "price", "how much", "buy", "link", "book", "template", "service", "سعر", "شراء", "كتاب", "تفاصيل", "كام", "بكام", "مهتم", "عايز", "اريد"]
+            contains_keyword = any(k in low for k in bot_keywords)
+            is_question = "?" in text or "؟" in text or low.startswith("how") or low.startswith("what") or low.startswith("can") or "how much" in low
+            
+            # يرد لو: رد على البوت او فيه كلمة مفتاحية او سؤال
+            if is_reply_to_bot or contains_keyword or is_question:
+                reply, is_hot = handle_customer_ai(text, first_name)
+                # رد مع منشن خفيف
+                group_reply = f"@{msg.get('from',{}).get('username', first_name)} {reply}" if msg.get("from",{}).get("username") else f"{first_name}, {reply}"
+                # لو مفيش يوزر نيم نرد عادي
+                if not msg.get("from",{}).get("username"):
+                    group_reply = f"{first_name}, {reply}"
+                send_telegram(chat_id, group_reply)
+                lead = {"chat_id": chat_id, "name": f"{first_name} (Group: {msg['chat'].get('title','')})", "text": text, "reply": reply, "hot": is_hot, "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
+                LEADS_LOG.append(lead)
+                if len(LEADS_LOG)>200: LEADS_LOG.pop(0)
+                if OWNER_ID:
+                    notify = f"💬 Group Question [{msg['chat'].get('title','')}]\n👤 {first_name}: {text}\n🤖 Replied: {reply}"
+                    if is_hot: notify = "🔥 HOT LEAD from GROUP!\n" + notify
+                    send_telegram(OWNER_ID, notify)
+                return "ok",200
 
     except Exception as e:
         logger.error(f"Webhook err: {e}")
