@@ -11,22 +11,18 @@ logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 PINTEREST_EMAIL = os.getenv("PINTEREST_EMAIL")
 PINTEREST_PASS = os.getenv("PINTEREST_PASS")
 
 app = Flask(__name__)
 
-try:
-    from openai import OpenAI
-    client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-except:
-    client = None
-
 auto_enabled = True
 is_posting = False
 
 def send_telegram(chat_id, text):
-    if not BOT_TOKEN: return
+    if not BOT_TOKEN:
+        return
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
@@ -34,20 +30,47 @@ def send_telegram(chat_id, text):
         print(f"Telegram fail: {e}", flush=True)
 
 def generate_book_content():
+    # 1. جرب Groq الأول (gsk_...)
     try:
-        if client:
-            prompt = "Generate viral Pinterest pin for coloring book US market. JSON: {'title':'...','description':'...'}"
-            resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user","content":prompt}], temperature=0.9)
+        from groq import Groq
+        groq_key = os.getenv("GROQ_API_KEY")
+        if groq_key and groq_key.startswith("gsk_"):
+            groq_client = Groq(api_key=groq_key)
+            resp = groq_client.chat.completions.create(
+                model="llama3-8b-8192",
+                messages=[{"role": "user", "content": "Generate viral Pinterest Pin idea for a coloring book for US market. Return ONLY JSON: {\"title\":\"catchy title max 8 words\",\"description\":\"short SEO description\"}"}],
+                temperature=0.9
+            )
             import json
             txt = resp.choices[0].message.content
-            try:
-                data = json.loads(txt[txt.find('{'):txt.rfind('}')+1])
-                return data
-            except:
-                pass
+            print(f"Groq success: {txt}", flush=True)
+            data = json.loads(txt[txt.find('{'):txt.rfind('}')+1])
+            return data
     except Exception as e:
-        print(f"AI fail: {e}", flush=True)
-    return {"title": f"Cozy Coloring Book {random.randint(1,999)}", "description": "Best seller coloring book for adults relaxation USA #coloringbook"}
+        print(f"Groq fail: {e}", flush=True)
+
+    # 2. جرب OpenAI (sk-...)
+    try:
+        from openai import OpenAI
+        if OPENAI_API_KEY and OPENAI_API_KEY.startswith("sk-"):
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "Generate viral Pinterest pin for coloring book. JSON: {'title':'...','description':'...'} "}],
+                temperature=0.9
+            )
+            import json
+            txt = resp.choices[0].message.content
+            data = json.loads(txt[txt.find('{'):txt.rfind('}')+1])
+            return data
+    except Exception as e:
+        print(f"OpenAI fail: {e}", flush=True)
+
+    # 3. Fallback لو مفيش مفاتيح
+    return {
+        "title": f"Cozy Coloring Book {random.randint(1,999)}",
+        "description": "Best seller coloring book for adults relaxation in USA #coloringbook #amazonkdp"
+    }
 
 def create_pin_image(title):
     try:
@@ -57,7 +80,8 @@ def create_pin_image(title):
         draw.rectangle([50, 50, w-50, 400], fill=(255, 107, 107))
         font = ImageFont.load_default()
         draw.text((100, 150), title[:40], fill="white", font=font)
-        draw.text((100, 500), "Available on Amazon", fill=(50,50,50))
+        draw.text((100, 500), "Available on Amazon", fill=(50, 50, 50))
+        draw.text((100, 600), "Link in Bio", fill=(50, 50, 50))
         path = "/tmp/pin.jpg"
         img.save(path, "JPEG", quality=95)
         return path
@@ -67,7 +91,8 @@ def create_pin_image(title):
 
 def post_to_pinterest():
     global is_posting
-    if is_posting: return
+    if is_posting:
+        return
     is_posting = True
     try:
         print("INFO:main:Auto scheduler triggered", flush=True)
@@ -99,10 +124,11 @@ def webhook():
     global auto_enabled
     try:
         data = request.get_json()
-        if not data or "message" not in data: return "ok", 200
+        if not data or "message" not in data:
+            return "ok", 200
         msg = data["message"]
         chat_id = msg["chat"]["id"]
-        text = msg.get("text","").lower()
+        text = msg.get("text", "").lower()
         if "/auto on" in text:
             auto_enabled = True
             send_telegram(chat_id, "🚀 وضع الإمبراطورية مفعل!")
@@ -110,10 +136,10 @@ def webhook():
             auto_enabled = False
             send_telegram(chat_id, "⏸️ تم الإيقاف")
         elif "/post" in text:
-            send_telegram(chat_id, "⏳ جاري النشر...")
+            send_telegram(chat_id, "⏳ جاري النشر الآن...")
             threading.Thread(target=post_to_pinterest, daemon=True).start()
         elif "/status" in text:
-            send_telegram(chat_id, f"📊 الحالة: {'مفعل ✅' if auto_enabled else 'متوقف ❌'}")
+            send_telegram(chat_id, f"📊 الحالة: {'مفعل ✅' if auto_enabled else 'متوقف ❌'}\nhttps://mamdouh-bot.onrender.com")
     except Exception as e:
         print(f"Webhook error: {e}", flush=True)
     return "ok", 200
