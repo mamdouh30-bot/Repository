@@ -1,0 +1,40 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>إعداد الموظف</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+<style>body{font-family:'Tajawal',sans-serif}</style>
+</head>
+<body class="bg-[#0A0A0B] text-white min-h-screen p-8">
+<div class="max-w-3xl mx-auto">
+<h1 class="text-3xl font-bold">🎉 أهلاً {{ tenant.company_name }} - خطوة واحدة وينطلق موظفك!</h1>
+<p class="opacity-70 mt-2">خطة {{ tenant.plan }} - {{ tenant.email }} - {% if tenant.is_trial %}تجربة مجانية 7 أيام{% else %}مفعل ✅{% endif %}</p>
+
+<div class="mt-8 bg-white/[0.05] border border-white/10 rounded-2xl p-8">
+<form action="/onboarding/save" method="post" class="space-y-6">
+<input type="hidden" name="tenant_id" value="{{ tenant.id }}">
+
+<h3 class="font-bold text-xl">1. اربط واتساب (رسمي)</h3>
+<input name="whatsapp_token" value="{{ tenant.whatsapp_token or '' }}" placeholder="WhatsApp Token من Meta" class="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3">
+<input name="whatsapp_phone_id" value="{{ tenant.whatsapp_phone_id or '' }}" placeholder="Phone Number ID" class="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3">
+<div class="text-xs opacity-60">Webhook URL للواتساب: <code class="bg-black px-2 py-1 rounded">{{ request.base_url }}webhook/whatsapp/{{ tenant.id }}</code><br>Verify Token: <code>super_employee_{{ tenant.id }}</code></div>
+
+<h3 class="font-bold text-xl mt-8">2. اربط تيليجرام</h3>
+<input name="telegram_token" value="{{ tenant.telegram_token or '' }}" placeholder="Telegram Bot Token من @BotFather" class="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3">
+<div class="text-xs opacity-60">Webhook URL: <code class="bg-black px-2 py-1 rounded">{{ request.base_url }}webhook/telegram/{{ tenant.id }}</code></div>
+
+<h3 class="font-bold text-xl mt-8">3. درب الموظف على شركتك</h3>
+<textarea name="company_info" rows="3" placeholder="من أنتم؟ ماذا تقدمون؟" class="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3">{{ tenant.company_info or '' }}</textarea>
+<textarea name="products_info" rows="4" placeholder="منتجاتكم وأسعاركم بالتفصيل - كلما كتبت أكثر، كان الرد أذكى" class="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3">{{ tenant.products_info or '' }}</textarea>
+
+<button class="w-full bg-[#00FF88] text-black font-bold py-4 rounded-xl text-lg">🚀 شغّل الموظف الخارق الآن</button>
+</form>
+</div>
+
+<div class="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-sm">
+💡 بعد الحفظ، اذهب لـ dashboard لترى الرسائل الحية: <a href="/dashboard/{{ tenant.id }}" class="underline font-bold">/dashboard/{{ tenant.id }}</a>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,38 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>لوحة تحكم {{ tenant.company_name }}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+<style>body{font-family:'Tajawal',sans-serif}</style>
+</head>
+<body class="bg-[#0A0A0B] text-white min-h-screen">
+<header class="p-6 border-b border-white/10 flex justify-between">
+<div><span class="w-2 h-2 bg-green-400 rounded-full inline-block animate-pulse"></span> {{ tenant.company_name }} - {{ tenant.plan }} - {{ tenant.messages_used }} رسالة مستخدمة</div>
+<div class="text-sm opacity-60">الطابور: {{ queue }} | تمت معالجتها: {{ stats.processed }}</div>
+</header>
+<div class="max-w-6xl mx-auto p-6 grid md:grid-cols-2 gap-6">
+<div class="bg-white/[0.05] rounded-2xl p-6">
+<h3 class="font-bold">📱 القنوات</h3>
+<div class="mt-4 space-y-3 text-sm">
+<div class="flex justify-between"><span>واتساب</span><span class="{% if tenant.whatsapp_token %}text-green-400{% else %}text-red-400{% endif %}">{% if tenant.whatsapp_token %}متصل ✅{% else %}غير مربوط{% endif %}</span></div>
+<div class="flex justify-between"><span>تيليجرام</span><span class="{% if tenant.telegram_token %}text-green-400{% else %}text-red-400{% endif %}">{% if tenant.telegram_token %}متصل ✅{% else %}غير مربوط{% endif %}</span></div>
+</div>
+<div class="mt-6">
+<h4 class="font-bold text-sm">Webhook للنسخ:</h4>
+<code class="block mt-2 bg-black p-3 rounded text-xs break-all">واتساب: {{ request.base_url }}webhook/whatsapp/{{ tenant.id }}</code>
+<code class="block mt-2 bg-black p-3 rounded text-xs break-all">تيليجرام: {{ request.base_url }}webhook/telegram/{{ tenant.id }}</code>
+</div>
+</div>
+<div class="bg-white/[0.05] rounded-2xl p-6">
+<h3 class="font-bold">📊 الأداء</h3>
+<div class="mt-4">النظام يعمل 24/7 بدون توقف. كل الرسائل تدخل الطابور وتُعالج تلقائياً.</div>
+<div class="mt-4 grid grid-cols-2 gap-4">
+<div class="bg-black/50 p-4 rounded-xl"><div class="text-2xl font-black">{{ tenant.messages_used }}</div><div class="text-xs opacity-60">رسالة هذا الشهر</div></div>
+<div class="bg-black/50 p-4 rounded-xl"><div class="text-2xl font-black text-[#00FF88]">0.8s</div><div class="text-xs opacity-60">متوسط الرد</div></div>
+</div>
+<a href="/admin/tenants" class="inline-block mt-6 text-xs underline opacity-60">لوحة الأدمن (كل العملاء)</a>
+</div>
+</div>
+</body>
+</html>
