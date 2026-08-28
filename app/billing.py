@@ -12,39 +12,62 @@ router = APIRouter()
 
 @router.post("/create-checkout-session")
 async def create_checkout(email: str, company_name: str, plan: str, db: Session = Depends(get_db)):
-    if plan not in settings.PLANS:
-        raise HTTPException(400, "الخطة غير موجودة")
-
+    # Normalize plan names (support both old and new)
+    plan_map = {
+        "basic": "starter",
+        "starter": "starter",
+        "pro": "growth",
+        "growth": "growth",
+        "enterprise": "empire",
+        "empire": "empire"
+    }
+    normalized_plan = plan_map.get(plan, plan)
+    if normalized_plan not in settings.PLANS:
+        normalized_plan = "growth"  # default
+    
     price_map = {
-        "basic": settings.PRICE_BASIC,
+        "starter": settings.PRICE_BASIC,
         "growth": settings.PRICE_GROWTH,
-        "empire": settings.PRICE_EMPIRE
+        "empire": settings.PRICE_EMPIRE,
+        "basic": settings.PRICE_BASIC,
+        "pro": settings.PRICE_GROWTH,
+        "enterprise": settings.PRICE_EMPIRE
     }
 
     # أنشئ أو احصل على العميل
     tenant = db.query(Tenant).filter(Tenant.email == email).first()
     if not tenant:
-        tenant = Tenant(company_name=company_name, email=email, plan=plan, trial_ends_at=datetime.utcnow()+timedelta(days=7))
+        tenant = Tenant(company_name=company_name, email=email, plan=normalized_plan, trial_ends_at=datetime.utcnow()+timedelta(days=7))
         db.add(tenant)
         db.commit()
         db.refresh(tenant)
+    else:
+        tenant.plan = normalized_plan
+        db.commit()
 
     try:
-        # في وضع التجربة بدون Stripe حقيقي
-        if not settings.STRIPE_SECRET or "test" not in settings.STRIPE_SECRET:
+        # في وضع التجربة بدون Stripe حقيقي - استخدم DOMAIN من الإعدادات
+        domain = settings.DOMAIN.rstrip("/")
+        if domain == "http://localhost:8000":
+            # حاول قراءة من Railway domain تلقائياً
+            domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", domain)
+            if not domain.startswith("http"):
+                domain = f"https://{domain}" if domain else "https://repository-production-f279.up.railway.app"
+        
+        if not settings.STRIPE_SECRET or "sk_" not in str(settings.STRIPE_SECRET):
             # تفعيل تجريبي مجاني 7 أيام
             tenant.is_active = True
             tenant.is_trial = True
             db.commit()
-            return {"url": f"{settings.DOMAIN}/onboarding?tenant_id={tenant.id}&trial=true", "trial": True}
+            return {"url": f"{domain}/onboarding?tenant_id={tenant.id}&trial=true", "trial": True}
 
         checkout_session = stripe.checkout.Session.create(
             customer_email=email,
-            line_items=[{"price": price_map[plan], "quantity": 1}],
+            line_items=[{"price": price_map.get(plan, price_map["growth"]), "quantity": 1}],
             mode="subscription",
-            success_url=f"{settings.DOMAIN}/onboarding?tenant_id={tenant.id}&session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{settings.DOMAIN}/?canceled=true",
-            metadata={"tenant_id": str(tenant.id), "plan": plan}
+            success_url=f"{domain}/onboarding?tenant_id={tenant.id}&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{domain}/?canceled=true",
+            metadata={"tenant_id": str(tenant.id), "plan": normalized_plan}
         )
         return {"url": checkout_session.url}
     except Exception as e:
@@ -52,7 +75,8 @@ async def create_checkout(email: str, company_name: str, plan: str, db: Session 
         # fallback للتجربة
         tenant.is_active = True
         db.commit()
-        return {"url": f"{settings.DOMAIN}/onboarding?tenant_id={tenant.id}&trial=true"}
+        domain = settings.DOMAIN.rstrip("/").replace("http://localhost:8000", "https://repository-production-f279.up.railway.app")
+        return {"url": f"{domain}/onboarding?tenant_id={tenant.id}&trial=true"}
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
